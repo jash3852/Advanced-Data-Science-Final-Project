@@ -1,4 +1,6 @@
 from src.data_loader import NewsCorporaDataLoader
+from src.minhash import NumbaMinHash
+
 
 def main():
     # Initialize the data loader
