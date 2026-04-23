@@ -128,47 +128,62 @@ def main():
     print("Exact Jaccard Runtime Analysis")
     print("=========================")
 
-    texts = sample_df["main_content"].fillna("").astype(str).tolist()
+    num_iterations = 100
+    sample_size = 20
 
-    start_time = time.time()
+    jaccard_times = []
+    minhash_times = []
+    speedups = []
 
-    for i in range(len(texts)):
-        for j in range(i + 1, len(texts)):
-            _ = minhash.exact_jaccard(texts[i], texts[j])
+    for iteration in range(num_iterations):
+        iteration_sample = dataset.sample(sample_size, random_state=42 + iteration)
+        texts = iteration_sample["main_content"].fillna("").astype(str).tolist()
 
-    end_time = time.time()
-    jaccard_time = end_time - start_time
+        start_time = time.time()
+        for i in range(len(texts)):
+            for j in range(i + 1, len(texts)):
+                _ = minhash.exact_jaccard(texts[i], texts[j])
+        jaccard_time = time.time() - start_time
+        jaccard_times.append(jaccard_time)
 
-    print(f"Exact Jaccard runtime: {jaccard_time:.4f} seconds")
+        start_time = time.time()
+        _ = minhash.find_candidate_pairs_in_dataframe(
+            iteration_sample,
+            text_column="main_content",
+            id_column="id",
+            top_k=5,
+            exact_check=False,
+        )
+        minhash_time = time.time() - start_time
+        minhash_times.append(minhash_time)
+
+        if minhash_time > 0:
+            speedups.append(jaccard_time / minhash_time)
+
+    avg_jaccard_time = sum(jaccard_times) / len(jaccard_times) if jaccard_times else 0.0
+    avg_minhash_time = sum(minhash_times) / len(minhash_times) if minhash_times else 0.0
+
+    print(f"Exact Jaccard average runtime ({num_iterations} runs): {avg_jaccard_time:.4f} seconds")
 
     print("\n=========================")
     print("MinHash Runtime Analysis")
     print("=========================")
 
-    start_time = time.time()
-
-    results = minhash.find_candidate_pairs_in_dataframe(
-        sample_df,
-        text_column="main_content",
-        id_column="id",
-        top_k=5,
-        exact_check=False,  
-    )
-
-    end_time = time.time()
-    minhash_time = end_time - start_time
-
-    print(f"MinHash runtime: {minhash_time:.4f} seconds")
+    print(f"MinHash average runtime ({num_iterations} runs): {avg_minhash_time:.4f} seconds")
 
     print("\n=========================")
     print("Speed Comparison")
     print("=========================")
 
-    if jaccard_time > 0:
-        speedup = jaccard_time / minhash_time
-        print(f"Speedup (Jaccard / MinHash): {speedup:.2f}x faster")
+    if speedups:
+        avg_speedup = sum(speedups) / len(speedups)
+        variance = sum((value - avg_speedup) ** 2 for value in speedups) / len(speedups)
+        std_speedup = variance ** 0.5
+
+        print(f"Average Speedup (Jaccard / MinHash): {avg_speedup:.2f}x")
+        print(f"Speedup Standard Deviation: {std_speedup:.2f}x")
     else:
-        print("Jaccard runtime too small to compare.")
+        print("Unable to compute speedup (MinHash runtime was zero in all runs).")
 
     print("\n=========================")
     print("Category-Based Similarity Analysis")
