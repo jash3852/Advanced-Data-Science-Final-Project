@@ -60,8 +60,8 @@ class NewsCorporaDataLoader:
 		for pattern in self._BOILERPLATE_PATTERNS:
 			cleaned = pattern.sub(" ", cleaned)
 
-		# Remove punctuation but keep internal hyphens in words.
-		cleaned = re.sub(r"[^\w\s-]", " ", cleaned)
+		# Remove non-alphanumeric characters but keep internal hyphens in words.
+		cleaned = re.sub(r"[^a-z0-9\s-]", " ", cleaned)
 		cleaned = re.sub(r"(?<!\w)-|-(?!\w)", " ", cleaned)
 
 		if self.remove_stopwords:
