@@ -76,7 +76,7 @@ def main():
     "m": "Health"
     }
     # Initialize the data loader
-    data_loader = NewsCorporaDataLoader()
+    data_loader = NewsCorporaDataLoader(remove_stopwords = True)
 
     # Load the entire dataset
     dataset = data_loader.get_dataset()

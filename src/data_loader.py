@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 from typing import Optional
 
 import pandas as pd
@@ -8,9 +9,28 @@ import pandas as pd
 class NewsCorporaDataLoader:
 	"""Load and query the parquet news dataset."""
 
-	def __init__(self, parquet_path: Optional[str] = None) -> None:
+	_STOPWORDS = {
+		"a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "has", "he",
+		"in", "is", "it", "its", "of", "on", "that", "the", "to", "was", "were", "will",
+		"with", "this", "these", "those", "or", "not", "but", "if", "then", "than", "so",
+		"we", "you", "they", "i", "me", "my", "our", "your", "their", "them", "his", "her",
+	}
+
+	_DATELINE_PATTERN = re.compile(
+		r"^\s*[a-z][a-z\.\s-]*(?:,\s*[a-z][a-z\.\s-]*)?\s*(?:\([^)]+\))?\s*[\u2014\-]\s*",
+		re.IGNORECASE,
+	)
+
+	_BOILERPLATE_PATTERNS = (
+		re.compile(r"click\s+here\s+to\s+read\s+more\.?", re.IGNORECASE),
+		re.compile(r"follow\s+us\s+on\s+twitter\.?", re.IGNORECASE),
+		re.compile(r"reporting\s+by\s+[^.;]+;\s*editing\s+by\s+[^.;]+\.?", re.IGNORECASE),
+	)
+
+	def __init__(self, parquet_path: Optional[str] = None, remove_stopwords: bool = False) -> None:
 		default_path = Path(__file__).resolve().parents[1] / "data" / "uci_news.snappy.parquet"
 		self.parquet_path = Path(parquet_path) if parquet_path else default_path
+		self.remove_stopwords = remove_stopwords
 		self._dataset = self._load_dataset()
 
 	def _load_dataset(self) -> pd.DataFrame:
@@ -20,7 +40,37 @@ class NewsCorporaDataLoader:
 
 		dataset = pd.read_parquet(self.parquet_path)
 		dataset.columns = [col.lower() for col in dataset.columns]
+		return self._preprocess_dataset(dataset)
+
+	def _preprocess_dataset(self, dataset: pd.DataFrame) -> pd.DataFrame:
+		"""Apply normalization and news-specific cleanup to main_content only."""
+		dataset = dataset.copy()
+		if "main_content" in dataset.columns:
+			dataset["main_content"] = dataset["main_content"].fillna("").map(self._preprocess_text)
+
 		return dataset
+
+	def _preprocess_text(self, text: str) -> str:
+		"""Normalize and clean article text for downstream similarity tasks."""
+		cleaned = str(text).lower()
+
+		# Remove common dateline prefixes like: "city, state (publisher) -"
+		cleaned = self._DATELINE_PATTERN.sub("", cleaned)
+
+		for pattern in self._BOILERPLATE_PATTERNS:
+			cleaned = pattern.sub(" ", cleaned)
+
+		# Remove punctuation but keep internal hyphens in words.
+		cleaned = re.sub(r"[^\w\s-]", " ", cleaned)
+		cleaned = re.sub(r"(?<!\w)-|-(?!\w)", " ", cleaned)
+
+		if self.remove_stopwords:
+			tokens = [tok for tok in cleaned.split() if tok not in self._STOPWORDS]
+			cleaned = " ".join(tokens)
+
+		# Collapse tabs/newlines/multiple spaces.
+		cleaned = re.sub(r"\s+", " ", cleaned).strip()
+		return cleaned
 
 	def get_dataset(self) -> pd.DataFrame:
 		"""Return the entire loaded dataset."""
