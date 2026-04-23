@@ -1,6 +1,72 @@
 from src.data_loader import NewsCorporaDataLoader
 from src.minhash import NumbaMinHash
 import time
+import sys
+from pathlib import Path
+from datetime import datetime
+from contextlib import redirect_stdout, redirect_stderr
+
+
+class Tee:
+    """Write output to multiple streams simultaneously."""
+
+    def __init__(self, *streams):
+        self.streams = streams
+
+    def write(self, data):
+        for stream in self.streams:
+            stream.write(data)
+
+    def flush(self):
+        for stream in self.streams:
+            stream.flush()
+
+
+def _pairwise_jaccard_stats(minhash, df, text_column="main_content"):
+    """Return average and maximum exact Jaccard statistics for a dataframe slice."""
+    if len(df) < 2:
+        return None
+
+    texts = df[text_column].fillna("").astype(str).tolist()
+    similarities = []
+    max_similarity = -1.0
+    max_pair = None
+
+    for i in range(len(texts)):
+        for j in range(i + 1, len(texts)):
+            similarity = minhash.exact_jaccard(texts[i], texts[j])
+            similarities.append(similarity)
+
+            if similarity > max_similarity:
+                max_similarity = similarity
+                max_pair = (i, j)
+
+    if not similarities:
+        return None
+
+    average_similarity = sum(similarities) / len(similarities)
+    return {
+        "average": average_similarity,
+        "maximum": max_similarity,
+        "pair": max_pair,
+    }
+
+
+def _article_link(row):
+    """Return the row URL when available; otherwise fall back to hostname."""
+    url = row.get("url", "")
+    if isinstance(url, str) and url.strip():
+        return url
+    return row.get("hostname", "N/A")
+
+
+def _build_output_path():
+    project_root = Path(__file__).resolve().parents[1]
+    output_dir = project_root / "outputs"
+    output_dir.mkdir(parents=True, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    return output_dir / f"main_output_{timestamp}.txt"
+
 
 def main():
     category_map = {
@@ -17,15 +83,15 @@ def main():
     print("Full Dataset:")
     print(dataset.head())
 
-    # Query by category
-    category_data = data_loader.get_dataset_by_category("t")
-    print("\nTechnology Category:")
-    print(category_data.head())
+    # # Query by category
+    # category_data = data_loader.get_dataset_by_category("t")
+    # print("\nTechnology Category:")
+    # print(category_data.head())
 
-    # Query by hostname
-    hostname_data = data_loader.get_dataset_by_hostname("www.cnet.com")
-    print("\nHostname www.cnet.com:")
-    print(hostname_data.head())
+    # # Query by hostname
+    # hostname_data = data_loader.get_dataset_by_hostname("www.cnet.com")
+    # print("\nHostname www.cnet.com:")
+    # print(hostname_data.head())
 
     # =========================
     # MINHASH PART 
@@ -121,21 +187,51 @@ def main():
             print("Not enough articles.")
             continue
 
-        texts = cat_df["main_content"].fillna("").astype(str).tolist()
+        stats = _pairwise_jaccard_stats(minhash, cat_df)
 
-        similarities = []
+        if stats:
+            max_left, max_right = stats["pair"]
+            left_row = cat_df.iloc[max_left]
+            right_row = cat_df.iloc[max_right]
 
-        for i in range(len(texts)):
-            for j in range(i + 1, len(texts)):
-                sim = minhash.exact_jaccard(texts[i], texts[j])
-                similarities.append(sim)
+            print(f"Average Jaccard Similarity: {stats['average']:.4f}")
+            print(f"Max Jaccard Similarity: {stats['maximum']:.4f}")
+            print(
+                "Max Pair: "
+                f"({left_row['id']}, {_article_link(left_row)}) <-> "
+                f"({right_row['id']}, {_article_link(right_row)})"
+            )
+        else:
+            print("No valid comparisons.")
 
-        if similarities:
-            avg_sim = sum(similarities) / len(similarities)
-            max_sim = max(similarities)
+    print("\n=========================")
+    print("Hostname-Based Similarity Analysis")
+    print("=========================")
 
-            print(f"Average Jaccard Similarity: {avg_sim:.4f}")
-            print(f"Max Jaccard Similarity: {max_sim:.4f}")
+    hostnames = dataset["hostname"].dropna().unique()
+
+    for hostname in hostnames:
+        hostname_df = dataset[dataset["hostname"] == hostname]
+
+        if len(hostname_df) < 2:
+            continue
+
+        print(f"\nHostname: {hostname}")
+
+        stats = _pairwise_jaccard_stats(minhash, hostname_df)
+
+        if stats:
+            max_left, max_right = stats["pair"]
+            left_row = hostname_df.iloc[max_left]
+            right_row = hostname_df.iloc[max_right]
+
+            print(f"Average Jaccard Similarity: {stats['average']:.4f}")
+            print(f"Max Jaccard Similarity: {stats['maximum']:.4f}")
+            print(
+                "Max Pair: "
+                f"({left_row['id']}, {_article_link(left_row)}) <-> "
+                f"({right_row['id']}, {_article_link(right_row)})"
+            )
         else:
             print("No valid comparisons.")
 
@@ -144,20 +240,24 @@ def main():
     print("=========================")
 
     random_df = dataset.sample(10, random_state=42)
-    texts = random_df["main_content"].fillna("").astype(str).tolist()
+    stats = _pairwise_jaccard_stats(minhash, random_df)
 
-    similarities = []
+    if stats:
+        max_left, max_right = stats["pair"]
+        left_row = random_df.iloc[max_left]
+        right_row = random_df.iloc[max_right]
 
-    for i in range(len(texts)):
-        for j in range(i + 1, len(texts)):
-            sim = minhash.exact_jaccard(texts[i], texts[j])
-            similarities.append(sim)
-
-    if similarities:
-        avg_sim = sum(similarities) / len(similarities)
-        max_sim = max(similarities)
-
-        print(f"Average Jaccard Similarity (Random): {avg_sim:.4f}")
-        print(f"Max Jaccard Similarity (Random): {max_sim:.4f}")
+        print(f"Average Jaccard Similarity (Random): {stats['average']:.4f}")
+        print(f"Max Jaccard Similarity (Random): {stats['maximum']:.4f}")
+        print(
+            "Max Pair (Random): "
+            f"({left_row['id']}, {_article_link(left_row)}) <-> "
+            f"({right_row['id']}, {_article_link(right_row)})"
+        )
 if __name__ == "__main__":
-    main()
+    output_path = _build_output_path()
+    with output_path.open("w", encoding="utf-8") as output_file:
+        tee_stream = Tee(sys.stdout, output_file)
+        with redirect_stdout(tee_stream), redirect_stderr(tee_stream):
+            print(f"Saving output log to: {output_path}")
+            main()
