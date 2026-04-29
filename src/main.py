@@ -1,10 +1,13 @@
 from src.data_loader import NewsCorporaDataLoader
 from src.minhash import NumbaMinHash
 import time
+
 import sys
 from pathlib import Path
 from datetime import datetime
 from contextlib import redirect_stdout, redirect_stderr
+
+import matplotlib.pyplot as plt
 
 
 class Tee:
@@ -67,6 +70,174 @@ def _build_output_path():
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     return output_dir / f"main_output_{timestamp}.txt"
 
+def plot_category_similarity(dataset, minhash):
+    category_map = {
+        "t": "Technology",
+        "b": "Business",
+        "e": "Entertainment",
+        "m": "Health"
+    }
+
+    categories = []
+    avg_sims = []
+
+    MAX_PAIRS = 100
+
+    for cat in dataset["category"].dropna().unique():
+        cat_df = dataset[dataset["category"] == cat].head(10)
+        texts = cat_df["main_content"].fillna("").astype(str).tolist()
+
+        # Precompute shingles
+        shingles = [set(minhash.text_to_shingle_hashes(t)) for t in texts]
+
+        sims = []
+        count = 0
+
+        for i in range(len(shingles)):
+            for j in range(i + 1, len(shingles)):
+                left = shingles[i]
+                right = shingles[j]
+
+                union = len(left | right)
+                sim = len(left & right) / union if union > 0 else 0
+                sims.append(sim)
+
+                count += 1
+                if count >= MAX_PAIRS:
+                    break
+            if count >= MAX_PAIRS:
+                break
+
+        if sims:
+            categories.append(category_map.get(cat, cat))
+            avg_sims.append(sum(sims) / len(sims))
+
+    # Random baseline
+    random_df = dataset.sample(10, random_state=42)
+    texts = random_df["main_content"].fillna("").astype(str).tolist()
+    shingles = [set(minhash.text_to_shingle_hashes(t)) for t in texts]
+
+    sims = []
+    count = 0
+
+    for i in range(len(shingles)):
+        for j in range(i + 1, len(shingles)):
+            left = shingles[i]
+            right = shingles[j]
+
+            union = len(left | right)
+            sim = len(left & right) / union if union > 0 else 0
+            sims.append(sim)
+
+            count += 1
+            if count >= MAX_PAIRS:
+                break
+        if count >= MAX_PAIRS:
+            break
+
+    if sims:
+        categories.append("Random")
+        avg_sims.append(sum(sims) / len(sims))
+
+    plt.figure()
+    plt.bar(categories, avg_sims)
+    plt.xlabel("Category")
+    plt.ylabel("Average Jaccard Similarity")
+    plt.title("Similarity by Category vs Random")
+    plt.xticks(rotation=30)
+    plt.tight_layout()
+    plt.show()
+
+def plot_error_vs_hashes(dataset):
+    hash_counts = [10, 50, 100, 200]
+    errors = []
+
+    sample_df = dataset.head(20)
+    texts = sample_df["main_content"].fillna("").astype(str).tolist()
+
+    MAX_PAIRS = 100
+
+    for num_hashes in hash_counts:
+        minhash = NumbaMinHash(num_hashes=num_hashes, shingle_size=5, seed=42)
+
+        # Precompute shingles ONCE
+        shingles = [set(minhash.text_to_shingle_hashes(t)) for t in texts]
+
+        total_error = 0
+        count = 0
+
+        for i in range(len(texts)):
+            for j in range(i + 1, len(texts)):
+                # MinHash estimate
+                est = minhash.compare_two_texts(texts[i], texts[j]).estimated_jaccard
+
+                # Exact 
+                left = shingles[i]
+                right = shingles[j]
+                union = len(left | right)
+                exact = len(left & right) / union if union > 0 else 0
+
+                total_error += abs(est - exact)
+                count += 1
+
+                if count >= MAX_PAIRS:
+                    break
+            if count >= MAX_PAIRS:
+                break
+
+        errors.append(total_error / count if count > 0 else 0)
+
+    plt.figure()
+    plt.plot(hash_counts, errors, marker='o')
+    plt.xlabel("Number of Hash Functions")
+    plt.ylabel("Average Error")
+    plt.title("Error vs Number of Hash Functions")
+    plt.tight_layout()
+    plt.show()
+
+def plot_runtime_vs_size(dataset, minhash):
+    sizes = [20, 50, 100, 200, 400, 800] 
+    minhash_times = []
+    jaccard_times = []
+
+    for size in sizes:
+        sample_df = dataset.head(size)
+        texts = sample_df["main_content"].fillna("").astype(str).tolist()
+
+        # Precompute shingles ONCE
+        shingles = [set(minhash.text_to_shingle_hashes(t)) for t in texts]
+
+        # Jaccard 
+        start = time.time()
+
+        for i in range(len(shingles)):
+            for j in range(i + 1, len(shingles)):
+                left = shingles[i]
+                right = shingles[j]
+                union = len(left | right)
+                _ = len(left & right) / union if union > 0 else 0
+
+        jaccard_times.append(time.time() - start)
+
+        # MinHash (SIGNATURE ONLY)
+        start = time.time()
+
+        signatures = [
+            minhash.signature_from_text(t)
+            for t in texts
+        ]
+
+        minhash_times.append(time.time() - start)
+
+    plt.figure()
+    plt.plot(sizes, minhash_times, marker='o', label="MinHash (Signatures)")
+    plt.plot(sizes, jaccard_times, marker='o', label="Exact Jaccard")
+    plt.xlabel("Dataset Size")
+    plt.ylabel("Runtime (seconds)")
+    plt.title("Runtime Comparison (Fair)")
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
 
 def main():
     category_map = {
@@ -269,6 +440,20 @@ def main():
             f"({left_row['id']}, {_article_link(left_row)}) <-> "
             f"({right_row['id']}, {_article_link(right_row)})"
         )
+    for i in range(len(texts)):
+        for j in range(i + 1, len(texts)):
+            sim = minhash.exact_jaccard(texts[i], texts[j])
+            similarities.append(sim)
+
+    if similarities:
+        avg_sim = sum(similarities) / len(similarities)
+        max_sim = max(similarities)
+
+        print(f"Average Jaccard Similarity (Random): {avg_sim:.4f}")
+        print(f"Max Jaccard Similarity (Random): {max_sim:.4f}")
+    plot_runtime_vs_size(dataset, minhash)
+    plot_error_vs_hashes(dataset)
+    plot_category_similarity(dataset, minhash)
 if __name__ == "__main__":
     output_path = _build_output_path()
     with output_path.open("w", encoding="utf-8") as output_file:
