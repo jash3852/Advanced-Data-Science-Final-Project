@@ -1,5 +1,7 @@
 # Advanced-Data-Science-Final-Project
 
+## Presentation Video Link: https://www.youtube.com/watch?v=toPZn-Aaahs
+
 ## Research Questions
 
 1) How much speedup does a Numba-optimized MinHash implementation achieve compared to exact Jaccard similarity for large-text plagiarism detection?
