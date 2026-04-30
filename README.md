@@ -23,3 +23,5 @@
 2) Run python src.main after installing all required libraries
 
 3) Wait for all results and plots to show.
+
+*All code is in the src directory, all visuall aids and plots are in the img directory, and all outputs are in outputs directory.*
