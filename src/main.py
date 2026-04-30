@@ -440,6 +440,8 @@ def main():
             f"({left_row['id']}, {_article_link(left_row)}) <-> "
             f"({right_row['id']}, {_article_link(right_row)})"
         )
+    texts = random_df["main_content"].fillna("").astype(str).tolist()
+    similarities = []
     for i in range(len(texts)):
         for j in range(i + 1, len(texts)):
             sim = minhash.exact_jaccard(texts[i], texts[j])
