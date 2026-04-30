@@ -2,6 +2,10 @@
 
 ## Presentation Video Link: https://www.youtube.com/watch?v=toPZn-Aaahs
 
+## Final Report [here](CSCI_4022_Project_Report.pdf)
+
+## Presentation Visual Aid [here](CSCI 4022-Final Project Presentation.pdf)
+
 ## Research Questions
 
 1) How much speedup does a Numba-optimized MinHash implementation achieve compared to exact Jaccard similarity for large-text plagiarism detection?
