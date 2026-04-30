@@ -4,7 +4,7 @@
 
 ## Final Report [here](CSCI_4022_Project_Report.pdf)
 
-## Presentation Visual Aid [here](CSCI 4022-Final Project Presentation.pdf)
+## Presentation Visual Aid [here](CSCI_4022-Final_Project_Presentation.pdf)
 
 ## Research Questions
 
